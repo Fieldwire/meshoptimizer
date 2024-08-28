@@ -62,6 +62,12 @@ struct Mesh
 	std::vector<const char*> target_names;
 
 	std::vector<cgltf_material_mapping> variants;
+
+	const char* parent_node_name;
+	size_t index_in_parent_node;
+
+	std::vector<const char*> merged_meshes_parent_node_names;
+	std::vector<unsigned int> merged_meshes_parent_node_start_indices;
 };
 
 struct Track

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <map>
 
 #include "../src/meshoptimizer.h"
 
@@ -147,7 +148,23 @@ static bool isIdAttribute(const char* name)
 	       strncmp(name, "_FEATURE_ID_", 12) == 0;
 }
 
-static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::vector<std::pair<size_t, size_t> >& mesh_remap)
+static void createNodesToChildMeshesMap(cgltf_data* data, std::map<cgltf_mesh*, std::pair<const char*, const size_t> >& map)
+{
+	for (size_t ni = 0; ni < data->nodes_count; ++ni)
+	{
+		cgltf_node& node = data->nodes[ni];
+
+		for (size_t j = 0; j < node.children_count; ++j) {
+			cgltf_node* child_node = *(&node.children[j]);
+
+			if (child_node->mesh && node.name) {
+				map.insert(std::pair<cgltf_mesh*, std::pair<const char*, const size_t> >(child_node->mesh, std::make_pair(node.name, j)));
+			}
+		}
+	}
+}
+
+static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::vector<std::pair<size_t, size_t> >& mesh_remap, std::map<cgltf_mesh*, std::pair<const char*, const size_t> >& nodes_to_child_meshes_map)
 {
 	size_t total_primitives = 0;
 
@@ -162,6 +179,8 @@ static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::ve
 		const cgltf_mesh& mesh = data->meshes[mi];
 
 		size_t remap_offset = meshes.size();
+
+		std::map<cgltf_mesh*, std::pair<const char*, const size_t> >::iterator nodes_to_child_meshes_map_it = nodes_to_child_meshes_map.find(const_cast<cgltf_mesh*>(&mesh));
 
 		for (size_t pi = 0; pi < mesh.primitives_count; ++pi)
 		{
@@ -185,6 +204,12 @@ static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::ve
 			result.streams.reserve(primitive.attributes_count);
 
 			size_t vertex_count = primitive.attributes_count ? primitive.attributes[0].data->count : 0;
+
+			// save the parent node info to the mesh
+			if (nodes_to_child_meshes_map_it != nodes_to_child_meshes_map.end()) {
+				result.parent_node_name = nodes_to_child_meshes_map_it->second.first;
+				result.index_in_parent_node = nodes_to_child_meshes_map_it->second.second;
+			}
 
 			if (primitive.indices)
 			{
@@ -601,8 +626,10 @@ static cgltf_data* parseGltf(cgltf_data* data, cgltf_result result, std::vector<
 		fprintf(stderr, "Warning: file uses instancing and has more than one scene; results may be incorrect\n");
 
 	std::vector<std::pair<size_t, size_t> > mesh_remap;
+	std::map<cgltf_mesh*, std::pair<const char*, const size_t> > nodes_to_child_meshes_map;
 
-	parseMeshesGltf(data, meshes, mesh_remap);
+	createNodesToChildMeshesMap(data, nodes_to_child_meshes_map);
+	parseMeshesGltf(data, meshes, mesh_remap, nodes_to_child_meshes_map);
 	parseMeshNodesGltf(data, meshes, mesh_remap);
 	parseAnimationsGltf(data, animations);
 
