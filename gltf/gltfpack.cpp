@@ -1523,7 +1523,7 @@ int main(int argc, char** argv)
 		{
 			report = argv[++i];
 		}
-		else if (strcmp(arg, "-mmd") == 0 && i + 1 < argc && !merge_metadata)
+		else if (strcmp(arg, "-mmi") == 0 && i + 1 < argc && !merge_metadata)
 		{
 			merge_metadata = argv[++i];
 		}
@@ -1656,7 +1656,7 @@ int main(int argc, char** argv)
 			fprintf(stderr, "\t-noq: disable quantization; produces much larger glTF files with no extensions\n");
 			fprintf(stderr, "\t-v: verbose output (print version when used without other options)\n");
 			fprintf(stderr, "\t-r file: output a JSON report to file\n");
-			fprintf(stderr, "\t-mmd file: output a JSON file containing the merge metadata information\n");
+			fprintf(stderr, "\t-mmi file: output a JSON file containing the merge metadata information\n");
 			fprintf(stderr, "\t-h: display this help and exit\n");
 		}
 		else
