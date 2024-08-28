@@ -559,7 +559,8 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 		append(json_meshes, "{\"primitives\":[");
 
 		size_t pi = i;
-		for (; pi < meshes.size(); ++pi)
+		size_t meshes_size = settings.keep_mesh_parent_nodes ? i+1 : meshes.size();
+		for (; pi < meshes_size; ++pi)
 		{
 			const Mesh& prim = meshes[pi];
 
@@ -721,9 +722,11 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 		mesh_offset++;
 		ext_instancing = ext_instancing || !mesh.instances.empty();
 
-		// skip all meshes that we've written in this iteration
-		assert(pi > i);
-		i = pi - 1;
+		if (!settings.keep_mesh_parent_nodes) {
+			// skip all meshes that we've written in this iteration
+			assert(pi > i);
+			i = pi - 1;
+		}
 	}
 
 	remapNodes(data, nodes, node_offset);
@@ -1314,6 +1317,10 @@ int main(int argc, char** argv)
 		{
 			settings.keep_attributes = true;
 		}
+		else if (strcmp(arg, "-kmpn") == 0)
+		{
+			settings.keep_mesh_parent_nodes = true;
+		}
 		else if (strcmp(arg, "-mm") == 0)
 		{
 			settings.mesh_merge = true;
@@ -1543,6 +1550,7 @@ int main(int argc, char** argv)
 			fprintf(stderr, "\t-vtf: use floating point attributes for texture coordinates\n");
 			fprintf(stderr, "\t-vnf: use floating point attributes for normals\n");
 			fprintf(stderr, "\t-kv: keep source vertex attributes even if they aren't used\n");
+			fprintf(stderr, "\t-kmpn: keep mesh parent nodes that carry out names\n");
 			fprintf(stderr, "\nAnimations:\n");
 			fprintf(stderr, "\t-at N: use N-bit quantization for translations (default: 16; N should be between 1 and 24)\n");
 			fprintf(stderr, "\t-ar N: use N-bit quantization for rotations (default: 12; N should be between 4 and 16)\n");

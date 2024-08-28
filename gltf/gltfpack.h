@@ -136,6 +136,7 @@ struct Settings
 	bool keep_materials;
 	bool keep_extras;
 	bool keep_attributes;
+	bool keep_mesh_parent_nodes;
 
 	bool mesh_merge;
 	bool mesh_instancing;
