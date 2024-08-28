@@ -75,6 +75,12 @@ static void finalizeBufferViews(std::string& json, std::vector<BufferView>& view
 	}
 }
 
+static void mesh_name_with_parent_node_info(const Mesh& mesh, std::string* mesh_name)
+{
+	 // compute a unique name for the mesh, since a parent node with a given name can have several meshes
+	*mesh_name = std::string(mesh.parent_node_name) + "_" + std::to_string(mesh.index_in_parent_node);
+}
+
 static void printMeshStats(const std::vector<Mesh>& meshes, const char* name)
 {
 	size_t mesh_triangles = 0;
@@ -188,12 +194,12 @@ static bool printMergeMetadata(const char* path, const std::vector<Mesh>& meshes
 
 	for (size_t i = 0; i < meshes.size(); ++i) {
 		const Mesh& mesh = meshes[i];
-		// compute the unique key for the mesh, since a parent node with a given name can have several meshes
-		std::string mesh_unique_name = std::string(mesh.parent_node_name) + "_" + std::to_string(mesh.index_in_parent_node);
+		std::string mesh_unique_name = std::string();
+		mesh_name_with_parent_node_info(mesh, &mesh_unique_name);
 
 		comma(json);
 		append(json, "\"");
-		append(json, std::string(mesh.parent_node_name) + "_" + std::to_string(mesh.index_in_parent_node));
+		append(json, mesh_unique_name);
 		append(json, "\":{");
 
 		// the first mesh is the initial one, in which all others were merged into
@@ -618,12 +624,9 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 	{
 		const Mesh& mesh = meshes[i];
 
-		//
-		const char* mesh_name = nullptr;
+		std::string mesh_name = std::string();
 		if (settings.keep_mesh_parent_nodes) {
-			// compute a unique name for the mesh, since a parent node with a given name can have several meshes
-			std::string identifier = std::string(mesh.parent_node_name) + "_" + std::to_string(mesh.index_in_parent_node);
-			mesh_name = identifier.c_str();
+			mesh_name_with_parent_node_info(mesh, &mesh_name);
 		}
 
 		comma(json_meshes);
