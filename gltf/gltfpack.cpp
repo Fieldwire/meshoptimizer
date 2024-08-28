@@ -207,21 +207,22 @@ static bool printMergeMetadata(const char* path, const std::vector<Mesh>& meshes
 		append(json, mesh.parent_node_name);
 		append(json, "\"");
 
-		char* last_merged_mesh_name = (char*)mesh_unique_name.c_str();
+		char* last_merged_mesh_name = (char*)mesh.parent_node_name;
 		for (size_t j = 0; j < mesh.merged_meshes_parent_node_info.size(); ++j) {
 			const char* merged_mesh_parent_node_name = mesh.merged_meshes_parent_node_info[j].first;
 
 			// skip meshes that have duplicated names one after the other, as the index of the first one
 			// is enough to retrieve the expected name for sure
-			if (last_merged_mesh_name == nullptr || strcmp(merged_mesh_parent_node_name, last_merged_mesh_name) != 0) {
+			if (strcmp(merged_mesh_parent_node_name, last_merged_mesh_name) != 0) {
 				comma(json);
 				append(json, "\"");
 				append(json, std::to_string(mesh.merged_meshes_parent_node_info[j].second).c_str());
 				append(json, "\":\"");
 				append(json, merged_mesh_parent_node_name);
 				append(json, "\"");
+
+				last_merged_mesh_name = (char*)merged_mesh_parent_node_name;
 			}
-			last_merged_mesh_name = (char*)merged_mesh_parent_node_name;
 		}
 
 		append(json, "}");
