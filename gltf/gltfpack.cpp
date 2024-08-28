@@ -555,6 +555,14 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 	{
 		const Mesh& mesh = meshes[i];
 
+		//
+		const char* mesh_name = nullptr;
+		if (settings.keep_mesh_parent_nodes) {
+			// compute a unique name for the mesh, since a parent node with a given name can have several meshes
+			std::string identifier = std::string(mesh.parent_node_name) + "_" + std::to_string(mesh.index_in_parent_node);
+			mesh_name = identifier.c_str();
+		}
+
 		comma(json_meshes);
 		append(json_meshes, "{\"primitives\":[");
 
@@ -687,7 +695,7 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 				{
 					ni.mesh_nodes.push_back(node_offset);
 
-					writeMeshNode(json_nodes, mesh_offset, mesh.nodes[j], mesh.skin, data, settings.quantize && !settings.pos_float ? &qp : NULL);
+					writeMeshNode(json_nodes, mesh_offset, mesh_name, mesh.nodes[j], mesh.skin, data, settings.quantize && !settings.pos_float ? &qp : NULL);
 
 					node_offset++;
 				}
@@ -714,7 +722,7 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 			comma(json_roots[mesh.scene]);
 			append(json_roots[mesh.scene], node_offset);
 
-			writeMeshNode(json_nodes, mesh_offset, NULL, mesh.skin, data, settings.quantize && !settings.pos_float ? &qp : NULL);
+			writeMeshNode(json_nodes, mesh_offset, mesh_name, NULL, mesh.skin, data, settings.quantize && !settings.pos_float ? &qp : NULL);
 
 			node_offset++;
 		}
