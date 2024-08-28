@@ -183,6 +183,69 @@ static void printImageStats(const std::vector<BufferView>& views, TextureKind ki
 		printf("stats: image %s: %d bytes in %d images\n", name, int(bytes), int(count));
 }
 
+static bool printMergeMetadata(const char* path, const std::vector<Mesh>& meshes) {
+	std::string json;
+
+	for (size_t i = 0; i < meshes.size(); ++i) {
+		const Mesh& mesh = meshes[i];
+		// compute the unique key for the mesh, since a parent node with a given name can have several meshes
+		std::string mesh_unique_name = std::string(mesh.parent_node_name) + "_" + std::to_string(mesh.index_in_parent_node);
+
+		comma(json);
+		append(json, "\"");
+		append(json, std::string(mesh.parent_node_name) + "_" + std::to_string(mesh.index_in_parent_node));
+		append(json, "\":{");
+
+		// the first mesh is the initial one, in which all others were merged into
+		append(json, "\"0\":\"");
+		append(json, mesh.parent_node_name);
+		append(json, "\"");
+
+		char* last_merged_mesh_name = (char*)mesh_unique_name.c_str();
+		for (size_t j = 0; j < mesh.merged_meshes_parent_node_info.size(); ++j) {
+			const char* merged_mesh_parent_node_name = mesh.merged_meshes_parent_node_info[j].first;
+
+			// skip meshes that have duplicated names one after the other, as the index of the first one
+			// is enough to retrieve the expected name for sure
+			if (last_merged_mesh_name == nullptr || strcmp(merged_mesh_parent_node_name, last_merged_mesh_name) != 0) {
+				comma(json);
+				append(json, "\"");
+				append(json, std::to_string(mesh.merged_meshes_parent_node_info[j].second).c_str());
+				append(json, "\":\"");
+				append(json, merged_mesh_parent_node_name);
+				append(json, "\"");
+			}
+			last_merged_mesh_name = (char*)merged_mesh_parent_node_name;
+		}
+
+		append(json, "}");
+	}
+
+	std::string metadata_path = path;
+	metadata_path.replace(metadata_path.size() - 5, 5, ".json");
+
+	FILE* outjson = fopen(metadata_path.c_str(), "wb");
+	if (!outjson)
+	{
+		fprintf(stderr, "Error saving %s\n", metadata_path.c_str());
+		return false;
+	}
+
+	fprintf(outjson, "{");
+	fwrite(json.c_str(), json.size(), 1, outjson);
+	fprintf(outjson, "}");
+
+	int rc = 0;
+	rc |= fclose(outjson);
+	if (rc)
+	{
+		fprintf(stderr, "Error saving %s\n", metadata_path.c_str());
+		return false;
+	}
+
+	return true;
+}
+
 static bool printReport(const char* path, const std::vector<BufferView>& views, const std::vector<Mesh>& meshes, size_t node_count, size_t mesh_count, size_t texture_count, size_t material_count, size_t animation_count, size_t json_size, size_t bin_size)
 {
 	size_t bytes[BufferView::Kind_Count] = {};
@@ -324,7 +387,7 @@ static bool isExtensionSupported(const ExtensionInfo* extensions, size_t count, 
 	return false;
 }
 
-static void process(cgltf_data* data, const char* input_path, const char* output_path, const char* report_path, std::vector<Mesh>& meshes, std::vector<Animation>& animations, const Settings& settings, std::string& json, std::string& bin, std::string& fallback, size_t& fallback_size)
+static void process(cgltf_data* data, const char* input_path, const char* output_path, const char* report_path, const char* merge_metadata_path, std::vector<Mesh>& meshes, std::vector<Animation>& animations, const Settings& settings, std::string& json, std::string& bin, std::string& fallback, size_t& fallback_size)
 {
 	if (settings.verbose)
 	{
@@ -924,6 +987,14 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 		printImageStats(views, TextureKind_Attrib, "attrib");
 	}
 
+	if (merge_metadata_path)
+	{
+		if (!printMergeMetadata(merge_metadata_path, meshes))
+		{
+			fprintf(stderr, "Warning: cannot save merge metadata info to %s\n", merge_metadata_path);
+		}
+	}
+
 	if (report_path)
 	{
 		if (!printReport(report_path, views, meshes, node_offset, mesh_offset, texture_offset, material_offset, animations.size(), json.size(), bin.size()))
@@ -988,7 +1059,7 @@ static std::string getBufferSpec(const char* bin_path, size_t bin_size, const ch
 	return json;
 }
 
-int gltfpack(const char* input, const char* output, const char* report, Settings settings)
+int gltfpack(const char* input, const char* output, const char* report, const char* merge_metadata, Settings settings)
 {
 	cgltf_data* data = NULL;
 	std::vector<Mesh> meshes;
@@ -1066,7 +1137,7 @@ int gltfpack(const char* input, const char* output, const char* report, Settings
 
 	std::string json, bin, fallback;
 	size_t fallback_size = 0;
-	process(data, input, output, report, meshes, animations, settings, json, bin, fallback, fallback_size);
+	process(data, input, output, report, merge_metadata, meshes, animations, settings, json, bin, fallback, fallback_size);
 
 	cgltf_free(data);
 
@@ -1242,6 +1313,7 @@ int main(int argc, char** argv)
 	const char* input = NULL;
 	const char* output = NULL;
 	const char* report = NULL;
+	const char* merge_metadata = NULL;
 	bool help = false;
 	bool test = false;
 
@@ -1447,6 +1519,10 @@ int main(int argc, char** argv)
 		{
 			report = argv[++i];
 		}
+		else if (strcmp(arg, "-mmd") == 0 && i + 1 < argc && !merge_metadata)
+		{
+			merge_metadata = argv[++i];
+		}
 		else if (strcmp(arg, "-c") == 0)
 		{
 			settings.compress = true;
@@ -1507,7 +1583,7 @@ int main(int argc, char** argv)
 			const char* path = testinputs[i];
 
 			printf("%s\n", path);
-			gltfpack(path, NULL, NULL, settings);
+			gltfpack(path, NULL, NULL, NULL, settings);
 		}
 
 		return 0;
@@ -1576,6 +1652,7 @@ int main(int argc, char** argv)
 			fprintf(stderr, "\t-noq: disable quantization; produces much larger glTF files with no extensions\n");
 			fprintf(stderr, "\t-v: verbose output (print version when used without other options)\n");
 			fprintf(stderr, "\t-r file: output a JSON report to file\n");
+			fprintf(stderr, "\t-mmd file: output a JSON file containing the merge metadata information\n");
 			fprintf(stderr, "\t-h: display this help and exit\n");
 		}
 		else
@@ -1645,7 +1722,7 @@ int main(int argc, char** argv)
 		fprintf(stderr, "Warning: option -kn disables mesh merge (-mm) and mesh instancing (-mi) optimizations\n");
 	}
 
-	return gltfpack(input, output, report, settings);
+	return gltfpack(input, output, report, merge_metadata, settings);
 }
 #endif
 
