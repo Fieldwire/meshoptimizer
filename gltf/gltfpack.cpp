@@ -308,7 +308,7 @@ static void detachMesh(Mesh& mesh, cgltf_data* data, const std::vector<NodeInfo>
 	}
 	else if (canTransformMesh(mesh))
 	{
-		mergeMeshInstances(mesh);
+		mergeMeshInstances(mesh, settings);
 
 		assert(mesh.nodes.empty());
 		mesh.scene = scene;

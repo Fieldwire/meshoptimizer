@@ -66,8 +66,7 @@ struct Mesh
 	const char* parent_node_name;
 	size_t index_in_parent_node;
 
-	std::vector<const char*> merged_meshes_parent_node_names;
-	std::vector<unsigned int> merged_meshes_parent_node_start_indices;
+	std::vector<std::pair<const char*, unsigned int> >merged_meshes_parent_node_info;
 };
 
 struct Track
@@ -321,7 +320,7 @@ bool compareMeshTargets(const Mesh& lhs, const Mesh& rhs);
 bool compareMeshVariants(const Mesh& lhs, const Mesh& rhs);
 bool compareMeshNodes(const Mesh& lhs, const Mesh& rhs);
 
-void mergeMeshInstances(Mesh& mesh);
+void mergeMeshInstances(Mesh& mesh, const Settings& settings);
 void mergeMeshes(std::vector<Mesh>& meshes, const Settings& settings);
 void filterEmptyMeshes(std::vector<Mesh>& meshes);
 void filterStreams(Mesh& mesh, const MaterialInfo& mi);
