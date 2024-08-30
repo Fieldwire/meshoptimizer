@@ -189,10 +189,12 @@ static void printImageStats(const std::vector<BufferView>& views, TextureKind ki
 		printf("stats: image %s: %d bytes in %d images\n", name, int(bytes), int(count));
 }
 
-static bool printMergeMetadata(const char* path, const std::vector<Mesh>& meshes) {
+static bool printMergeMetadata(const char* path, const std::vector<Mesh>& meshes)
+{
 	std::string json;
 
-	for (size_t i = 0; i < meshes.size(); ++i) {
+	for (size_t i = 0; i < meshes.size(); ++i)
+	{
 		const Mesh& mesh = meshes[i];
 		std::string mesh_unique_name = std::string();
 		mesh_name_with_parent_node_info(mesh, &mesh_unique_name);
@@ -208,12 +210,14 @@ static bool printMergeMetadata(const char* path, const std::vector<Mesh>& meshes
 		append(json, "\"");
 
 		char* last_merged_mesh_name = (char*)mesh.parent_node_name;
-		for (size_t j = 0; j < mesh.merged_meshes_parent_node_info.size(); ++j) {
+		for (size_t j = 0; j < mesh.merged_meshes_parent_node_info.size(); ++j)
+		{
 			const char* merged_mesh_parent_node_name = mesh.merged_meshes_parent_node_info[j].first;
 
 			// skip meshes that have duplicated names one after the other, as the index of the first one
 			// is enough to retrieve the expected name for sure
-			if (strcmp(merged_mesh_parent_node_name, last_merged_mesh_name) != 0) {
+			if (strcmp(merged_mesh_parent_node_name, last_merged_mesh_name) != 0)
+			{
 				comma(json);
 				append(json, "\"");
 				append(json, std::to_string(mesh.merged_meshes_parent_node_info[j].second).c_str());
@@ -626,7 +630,8 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 		const Mesh& mesh = meshes[i];
 
 		std::string mesh_name = std::string();
-		if (settings.keep_mesh_parent_nodes) {
+		if (settings.keep_mesh_parent_nodes)
+		{
 			mesh_name_with_parent_node_info(mesh, &mesh_name);
 		}
 
@@ -797,7 +802,8 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 		mesh_offset++;
 		ext_instancing = ext_instancing || !mesh.instances.empty();
 
-		if (!settings.keep_mesh_parent_nodes) {
+		if (!settings.keep_mesh_parent_nodes)
+		{
 			// skip all meshes that we've written in this iteration
 			assert(pi > i);
 			i = pi - 1;

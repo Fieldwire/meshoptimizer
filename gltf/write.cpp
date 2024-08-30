@@ -1185,7 +1185,8 @@ void writeMeshNode(std::string& json, size_t mesh_offset, std::string& name, cgl
 	comma(json);
 	append(json, "{\"mesh\":");
 	append(json, mesh_offset);
-	if (!name.empty()) {
+	if (!name.empty())
+	{
 		append(json, ",\"name\":\"");
 		append(json, name);
 		append(json, "\"");

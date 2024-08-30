@@ -154,10 +154,12 @@ static void createNodesToChildMeshesMap(cgltf_data* data, std::map<cgltf_mesh*, 
 	{
 		cgltf_node& node = data->nodes[ni];
 
-		for (size_t j = 0; j < node.children_count; ++j) {
+		for (size_t j = 0; j < node.children_count; ++j)
+		{
 			cgltf_node* child_node = *(&node.children[j]);
 
-			if (child_node->mesh && node.name) {
+			if (child_node->mesh && node.name)
+			{
 				map.insert(std::pair<cgltf_mesh*, std::pair<const char*, const size_t> >(child_node->mesh, std::make_pair(node.name, j)));
 			}
 		}
@@ -206,7 +208,8 @@ static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::ve
 			size_t vertex_count = primitive.attributes_count ? primitive.attributes[0].data->count : 0;
 
 			// save the parent node info to the mesh
-			if (nodes_to_child_meshes_map_it != nodes_to_child_meshes_map.end()) {
+			if (nodes_to_child_meshes_map_it != nodes_to_child_meshes_map.end())
+			{
 				result.parent_node_name = nodes_to_child_meshes_map_it->second.first;
 				result.index_in_parent_node = nodes_to_child_meshes_map_it->second.second;
 			}
