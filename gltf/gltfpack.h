@@ -62,6 +62,11 @@ struct Mesh
 	std::vector<const char*> target_names;
 
 	std::vector<cgltf_material_mapping> variants;
+
+	const char* parent_node_name;
+	size_t index_in_parent_node;
+
+	std::vector<std::pair<const char*, unsigned int> >merged_meshes_parent_node_info;
 };
 
 struct Track
@@ -130,6 +135,7 @@ struct Settings
 	bool keep_materials;
 	bool keep_extras;
 	bool keep_attributes;
+	bool keep_mesh_parent_nodes;
 
 	bool mesh_merge;
 	bool mesh_instancing;
@@ -314,7 +320,7 @@ bool compareMeshTargets(const Mesh& lhs, const Mesh& rhs);
 bool compareMeshVariants(const Mesh& lhs, const Mesh& rhs);
 bool compareMeshNodes(const Mesh& lhs, const Mesh& rhs);
 
-void mergeMeshInstances(Mesh& mesh);
+void mergeMeshInstances(Mesh& mesh, const Settings& settings);
 void mergeMeshes(std::vector<Mesh>& meshes, const Settings& settings);
 void filterEmptyMeshes(std::vector<Mesh>& meshes);
 void filterStreams(Mesh& mesh, const MaterialInfo& mi);
@@ -379,7 +385,7 @@ void writeMeshAttributes(std::string& json, std::vector<BufferView>& views, std:
 size_t writeMeshIndices(std::vector<BufferView>& views, std::string& json_accessors, size_t& accr_offset, const Mesh& mesh, const Settings& settings);
 size_t writeJointBindMatrices(std::vector<BufferView>& views, std::string& json_accessors, size_t& accr_offset, const cgltf_skin& skin, const QuantizationPosition& qp, const Settings& settings);
 size_t writeInstances(std::vector<BufferView>& views, std::string& json_accessors, size_t& accr_offset, const std::vector<Transform>& transforms, const QuantizationPosition& qp, const Settings& settings);
-void writeMeshNode(std::string& json, size_t mesh_offset, cgltf_node* node, cgltf_skin* skin, cgltf_data* data, const QuantizationPosition* qp);
+void writeMeshNode(std::string& json, size_t mesh_offset, std::string& name, cgltf_node* node, cgltf_skin* skin, cgltf_data* data, const QuantizationPosition* qp);
 void writeMeshNodeInstanced(std::string& json, size_t mesh_offset, size_t accr_offset);
 void writeSkin(std::string& json, const cgltf_skin& skin, size_t matrix_accr, const std::vector<NodeInfo>& nodes, cgltf_data* data);
 void writeNode(std::string& json, const cgltf_node& node, const std::vector<NodeInfo>& nodes, cgltf_data* data);

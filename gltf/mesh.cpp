@@ -243,7 +243,7 @@ static bool canMergeMeshes(const Mesh& lhs, const Mesh& rhs, const Settings& set
 	return true;
 }
 
-static void mergeMeshes(Mesh& target, const Mesh& mesh)
+static void mergeMeshes(Mesh& target, const Mesh& mesh, const Settings& settings)
 {
 	assert(target.streams.size() == mesh.streams.size());
 
@@ -258,10 +258,16 @@ static void mergeMeshes(Mesh& target, const Mesh& mesh)
 	size_t index_count = mesh.indices.size();
 
 	for (size_t i = 0; i < index_count; ++i)
+	{
 		target.indices[index_offset + i] = unsigned(vertex_offset + mesh.indices[i]);
+		if (settings.keep_mesh_parent_nodes)
+		{
+			target.merged_meshes_parent_node_info.push_back(std::pair<const char*, unsigned int>(mesh.parent_node_name, index_offset));
+		}
+	}
 }
 
-void mergeMeshInstances(Mesh& mesh)
+void mergeMeshInstances(Mesh& mesh, const Settings& settings)
 {
 	if (mesh.nodes.empty())
 		return;
@@ -289,7 +295,7 @@ void mergeMeshInstances(Mesh& mesh)
 	for (size_t i = 0; i < mesh.nodes.size(); ++i)
 	{
 		transformMesh(transformed, base, mesh.nodes[i]);
-		mergeMeshes(mesh, transformed);
+		mergeMeshes(mesh, transformed, settings);
 	}
 
 	mesh.nodes.clear();
@@ -332,7 +338,7 @@ void mergeMeshes(std::vector<Mesh>& meshes, const Settings& settings)
 
 			if (!mesh.streams.empty() && canMergeMeshes(target, mesh, settings))
 			{
-				mergeMeshes(target, mesh);
+				mergeMeshes(target, mesh, settings);
 
 				mesh.streams.clear();
 				mesh.indices.clear();

@@ -75,6 +75,12 @@ static void finalizeBufferViews(std::string& json, std::vector<BufferView>& view
 	}
 }
 
+static void mesh_name_with_parent_node_info(const Mesh& mesh, std::string* mesh_name)
+{
+	 // compute a unique name for the mesh, since a parent node with a given name can have several meshes
+	*mesh_name = std::string(mesh.parent_node_name) + "_" + std::to_string(mesh.index_in_parent_node);
+}
+
 static void printMeshStats(const std::vector<Mesh>& meshes, const char* name)
 {
 	size_t mesh_triangles = 0;
@@ -181,6 +187,74 @@ static void printImageStats(const std::vector<BufferView>& views, TextureKind ki
 
 	if (count)
 		printf("stats: image %s: %d bytes in %d images\n", name, int(bytes), int(count));
+}
+
+static bool printMergeMetadata(const char* path, const std::vector<Mesh>& meshes)
+{
+	std::string json;
+
+	for (size_t i = 0; i < meshes.size(); ++i)
+	{
+		const Mesh& mesh = meshes[i];
+		std::string mesh_unique_name = std::string();
+		mesh_name_with_parent_node_info(mesh, &mesh_unique_name);
+
+		comma(json);
+		append(json, "\"");
+		append(json, mesh_unique_name);
+		append(json, "\":{");
+
+		// the first mesh is the initial one, in which all others were merged into
+		append(json, "\"0\":\"");
+		append(json, mesh.parent_node_name);
+		append(json, "\"");
+
+		char* last_merged_mesh_name = (char*)mesh.parent_node_name;
+		for (size_t j = 0; j < mesh.merged_meshes_parent_node_info.size(); ++j)
+		{
+			const char* merged_mesh_parent_node_name = mesh.merged_meshes_parent_node_info[j].first;
+
+			// skip meshes that have duplicated names one after the other, as the index of the first one
+			// is enough to retrieve the expected name for sure
+			if (strcmp(merged_mesh_parent_node_name, last_merged_mesh_name) != 0)
+			{
+				comma(json);
+				append(json, "\"");
+				append(json, std::to_string(mesh.merged_meshes_parent_node_info[j].second).c_str());
+				append(json, "\":\"");
+				append(json, merged_mesh_parent_node_name);
+				append(json, "\"");
+
+				last_merged_mesh_name = (char*)merged_mesh_parent_node_name;
+			}
+		}
+
+		append(json, "}");
+	}
+
+	std::string metadata_path = path;
+	metadata_path.replace(metadata_path.size() - 5, 5, ".json");
+
+	FILE* outjson = fopen(metadata_path.c_str(), "wb");
+	if (!outjson)
+	{
+		fprintf(stderr, "Error saving %s\n", metadata_path.c_str());
+		return false;
+	}
+
+	fprintf(outjson, "{");
+	fwrite(json.c_str(), json.size(), 1, outjson);
+	fprintf(outjson, "}");
+
+	int rc = 0;
+	rc |= fclose(outjson);
+	if (rc)
+	{
+		fprintf(stderr, "Error saving %s\n", metadata_path.c_str());
+		return false;
+	}
+
+	return true;
 }
 
 static bool printReport(const char* path, const std::vector<BufferView>& views, const std::vector<Mesh>& meshes, size_t node_count, size_t mesh_count, size_t texture_count, size_t material_count, size_t animation_count, size_t json_size, size_t bin_size)
@@ -308,7 +382,7 @@ static void detachMesh(Mesh& mesh, cgltf_data* data, const std::vector<NodeInfo>
 	}
 	else if (canTransformMesh(mesh))
 	{
-		mergeMeshInstances(mesh);
+		mergeMeshInstances(mesh, settings);
 
 		assert(mesh.nodes.empty());
 		mesh.scene = scene;
@@ -324,7 +398,7 @@ static bool isExtensionSupported(const ExtensionInfo* extensions, size_t count, 
 	return false;
 }
 
-static void process(cgltf_data* data, const char* input_path, const char* output_path, const char* report_path, std::vector<Mesh>& meshes, std::vector<Animation>& animations, const Settings& settings, std::string& json, std::string& bin, std::string& fallback, size_t& fallback_size)
+static void process(cgltf_data* data, const char* input_path, const char* output_path, const char* report_path, const char* merge_metadata_path, std::vector<Mesh>& meshes, std::vector<Animation>& animations, const Settings& settings, std::string& json, std::string& bin, std::string& fallback, size_t& fallback_size)
 {
 	if (settings.verbose)
 	{
@@ -555,11 +629,18 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 	{
 		const Mesh& mesh = meshes[i];
 
+		std::string mesh_name = std::string();
+		if (settings.keep_mesh_parent_nodes)
+		{
+			mesh_name_with_parent_node_info(mesh, &mesh_name);
+		}
+
 		comma(json_meshes);
 		append(json_meshes, "{\"primitives\":[");
 
 		size_t pi = i;
-		for (; pi < meshes.size(); ++pi)
+		size_t meshes_size = settings.keep_mesh_parent_nodes ? i+1 : meshes.size();
+		for (; pi < meshes_size; ++pi)
 		{
 			const Mesh& prim = meshes[pi];
 
@@ -686,7 +767,7 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 				{
 					ni.mesh_nodes.push_back(node_offset);
 
-					writeMeshNode(json_nodes, mesh_offset, mesh.nodes[j], mesh.skin, data, settings.quantize && !settings.pos_float ? &qp : NULL);
+					writeMeshNode(json_nodes, mesh_offset, mesh_name, mesh.nodes[j], mesh.skin, data, settings.quantize && !settings.pos_float ? &qp : NULL);
 
 					node_offset++;
 				}
@@ -713,7 +794,7 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 			comma(json_roots[mesh.scene]);
 			append(json_roots[mesh.scene], node_offset);
 
-			writeMeshNode(json_nodes, mesh_offset, NULL, mesh.skin, data, settings.quantize && !settings.pos_float ? &qp : NULL);
+			writeMeshNode(json_nodes, mesh_offset, mesh_name, NULL, mesh.skin, data, settings.quantize && !settings.pos_float ? &qp : NULL);
 
 			node_offset++;
 		}
@@ -721,9 +802,12 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 		mesh_offset++;
 		ext_instancing = ext_instancing || !mesh.instances.empty();
 
-		// skip all meshes that we've written in this iteration
-		assert(pi > i);
-		i = pi - 1;
+		if (!settings.keep_mesh_parent_nodes)
+		{
+			// skip all meshes that we've written in this iteration
+			assert(pi > i);
+			i = pi - 1;
+		}
 	}
 
 	remapNodes(data, nodes, node_offset);
@@ -913,6 +997,14 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 		printImageStats(views, TextureKind_Attrib, "attrib");
 	}
 
+	if (merge_metadata_path)
+	{
+		if (!printMergeMetadata(merge_metadata_path, meshes))
+		{
+			fprintf(stderr, "Warning: cannot save merge metadata info to %s\n", merge_metadata_path);
+		}
+	}
+
 	if (report_path)
 	{
 		if (!printReport(report_path, views, meshes, node_offset, mesh_offset, texture_offset, material_offset, animations.size(), json.size(), bin.size()))
@@ -977,7 +1069,7 @@ static std::string getBufferSpec(const char* bin_path, size_t bin_size, const ch
 	return json;
 }
 
-int gltfpack(const char* input, const char* output, const char* report, Settings settings)
+int gltfpack(const char* input, const char* output, const char* report, const char* merge_metadata, Settings settings)
 {
 	cgltf_data* data = NULL;
 	std::vector<Mesh> meshes;
@@ -1055,7 +1147,7 @@ int gltfpack(const char* input, const char* output, const char* report, Settings
 
 	std::string json, bin, fallback;
 	size_t fallback_size = 0;
-	process(data, input, output, report, meshes, animations, settings, json, bin, fallback, fallback_size);
+	process(data, input, output, report, merge_metadata, meshes, animations, settings, json, bin, fallback, fallback_size);
 
 	cgltf_free(data);
 
@@ -1231,6 +1323,7 @@ int main(int argc, char** argv)
 	const char* input = NULL;
 	const char* output = NULL;
 	const char* report = NULL;
+	const char* merge_metadata = NULL;
 	bool help = false;
 	bool test = false;
 
@@ -1313,6 +1406,10 @@ int main(int argc, char** argv)
 		else if (strcmp(arg, "-kv") == 0)
 		{
 			settings.keep_attributes = true;
+		}
+		else if (strcmp(arg, "-kmpn") == 0)
+		{
+			settings.keep_mesh_parent_nodes = true;
 		}
 		else if (strcmp(arg, "-mm") == 0)
 		{
@@ -1432,6 +1529,10 @@ int main(int argc, char** argv)
 		{
 			report = argv[++i];
 		}
+		else if (strcmp(arg, "-mmi") == 0 && i + 1 < argc && !merge_metadata)
+		{
+			merge_metadata = argv[++i];
+		}
 		else if (strcmp(arg, "-c") == 0)
 		{
 			settings.compress = true;
@@ -1492,7 +1593,7 @@ int main(int argc, char** argv)
 			const char* path = testinputs[i];
 
 			printf("%s\n", path);
-			gltfpack(path, NULL, NULL, settings);
+			gltfpack(path, NULL, NULL, NULL, settings);
 		}
 
 		return 0;
@@ -1543,6 +1644,7 @@ int main(int argc, char** argv)
 			fprintf(stderr, "\t-vtf: use floating point attributes for texture coordinates\n");
 			fprintf(stderr, "\t-vnf: use floating point attributes for normals\n");
 			fprintf(stderr, "\t-kv: keep source vertex attributes even if they aren't used\n");
+			fprintf(stderr, "\t-kmpn: keep mesh parent nodes that carry out names\n");
 			fprintf(stderr, "\nAnimations:\n");
 			fprintf(stderr, "\t-at N: use N-bit quantization for translations (default: 16; N should be between 1 and 24)\n");
 			fprintf(stderr, "\t-ar N: use N-bit quantization for rotations (default: 12; N should be between 4 and 16)\n");
@@ -1560,6 +1662,7 @@ int main(int argc, char** argv)
 			fprintf(stderr, "\t-noq: disable quantization; produces much larger glTF files with no extensions\n");
 			fprintf(stderr, "\t-v: verbose output (print version when used without other options)\n");
 			fprintf(stderr, "\t-r file: output a JSON report to file\n");
+			fprintf(stderr, "\t-mmi file: output a JSON file containing the merge metadata information\n");
 			fprintf(stderr, "\t-h: display this help and exit\n");
 		}
 		else
@@ -1629,7 +1732,7 @@ int main(int argc, char** argv)
 		fprintf(stderr, "Warning: option -kn disables mesh merge (-mm) and mesh instancing (-mi) optimizations\n");
 	}
 
-	return gltfpack(input, output, report, settings);
+	return gltfpack(input, output, report, merge_metadata, settings);
 }
 #endif
 
