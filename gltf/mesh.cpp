@@ -260,7 +260,7 @@ static void mergeMeshes(Mesh& target, const Mesh& mesh, const Settings& settings
 	for (size_t i = 0; i < index_count; ++i)
 	{
 		target.indices[index_offset + i] = unsigned(vertex_offset + mesh.indices[i]);
-		if (settings.keep_mesh_parent_nodes)
+		if (settings.keep_mesh_parent_nodes && mesh.parent_node_name)
 		{
 			target.merged_meshes_parent_node_info.push_back(std::pair<const char*, unsigned int>(mesh.parent_node_name, index_offset));
 		}

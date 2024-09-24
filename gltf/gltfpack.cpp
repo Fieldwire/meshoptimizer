@@ -77,7 +77,7 @@ static void finalizeBufferViews(std::string& json, std::vector<BufferView>& view
 
 static void mesh_name_with_parent_node_info(const Mesh& mesh, std::string* mesh_name)
 {
-	 // compute a unique name for the mesh, since a parent node with a given name can have several meshes
+	// compute a unique name for the mesh, since a parent node with a given name can have several meshes
 	*mesh_name = std::string(mesh.parent_node_name) + "_" + std::to_string(mesh.index_in_parent_node);
 }
 
@@ -196,6 +196,9 @@ static bool printMergeMetadata(const char* path, const std::vector<Mesh>& meshes
 	for (size_t i = 0; i < meshes.size(); ++i)
 	{
 		const Mesh& mesh = meshes[i];
+		if (!mesh.parent_node_name) {
+			continue;
+		}
 		std::string mesh_unique_name = std::string();
 		mesh_name_with_parent_node_info(mesh, &mesh_unique_name);
 
@@ -630,7 +633,7 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 		const Mesh& mesh = meshes[i];
 
 		std::string mesh_name = std::string();
-		if (settings.keep_mesh_parent_nodes)
+		if (settings.keep_mesh_parent_nodes && mesh.parent_node_name)
 		{
 			mesh_name_with_parent_node_info(mesh, &mesh_name);
 		}
