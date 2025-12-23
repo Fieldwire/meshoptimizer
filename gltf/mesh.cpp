@@ -833,7 +833,9 @@ void processMesh(Mesh& mesh, const Settings& settings)
 		filterTriangles(mesh);
 		if (settings.simplify_ratio < 1)
 			simplifyMesh(mesh, settings.simplify_ratio, settings.simplify_error, settings.simplify_attributes, settings.simplify_aggressive, settings.simplify_lock_borders);
-		optimizeMesh(mesh, settings.compressmore);
+		// Skip optimizeMesh for merged meshes to preserve metadata offset mappings
+		if (mesh.merged_meshes_parent_node_info.empty())
+			optimizeMesh(mesh, settings.compressmore);
 		break;
 
 	default:
