@@ -829,11 +829,15 @@ void processMesh(Mesh& mesh, const Settings& settings)
 
 	case cgltf_primitive_type_triangles:
 		filterBones(mesh);
-		reindexMesh(mesh);
-		filterTriangles(mesh);
-		if (settings.simplify_ratio < 1)
-			simplifyMesh(mesh, settings.simplify_ratio, settings.simplify_error, settings.simplify_attributes, settings.simplify_aggressive, settings.simplify_lock_borders);
-		optimizeMesh(mesh, settings.compressmore);
+		// Skip index-reordering operations for merged meshes to preserve metadata offset mappings
+		if (mesh.merged_meshes_parent_node_info.empty())
+		{
+			reindexMesh(mesh);
+			filterTriangles(mesh);
+			if (settings.simplify_ratio < 1)
+				simplifyMesh(mesh, settings.simplify_ratio, settings.simplify_error, settings.simplify_attributes, settings.simplify_aggressive, settings.simplify_lock_borders);
+			optimizeMesh(mesh, settings.compressmore);
+		}
 		break;
 
 	default:
