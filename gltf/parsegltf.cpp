@@ -67,6 +67,14 @@ static void readAccessor(std::vector<Attr>& data, const cgltf_accessor* accessor
 	}
 }
 
+static void readAccessor(std::vector<Attr>& data, const cgltf_accessor* accessor, const std::vector<unsigned int>& sparse)
+{
+	data.resize(sparse.size());
+
+	for (size_t i = 0; i < sparse.size(); ++i)
+		cgltf_accessor_read_float(accessor, sparse[i], &data[i].f[0], 4);
+}
+
 static void fixupIndices(std::vector<unsigned int>& indices, cgltf_primitive_type& type)
 {
 	if (type == cgltf_primitive_type_line_loop)
@@ -198,9 +206,8 @@ static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::ve
 			Mesh& result = meshes.back();
 
 			result.scene = -1;
-
 			result.material = primitive.material;
-
+			result.extras = primitive.extras;
 			result.type = primitive.type;
 
 			result.streams.reserve(primitive.attributes_count);
@@ -225,13 +232,26 @@ static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::ve
 			}
 			else if (primitive.type != cgltf_primitive_type_points)
 			{
-				// note, while we could generate a good index buffer, reindexMesh will take care of this
+				// note, while we could generate a good index buffer here, mesh will be reindexed during processing
 				result.indices.resize(vertex_count);
 				for (size_t i = 0; i < vertex_count; ++i)
 					result.indices[i] = unsigned(i);
 			}
 
+			// convert line loops and line/triangle strips to lists
 			fixupIndices(result.indices, result.type);
+
+			std::vector<unsigned int> sparse;
+
+			// if the index data is very sparse, switch to deindexing on the fly to avoid the excessive cost of reading large accessors
+			if (!result.indices.empty() && result.indices.size() < vertex_count / 2)
+			{
+				sparse = result.indices;
+
+				// mesh will be reindexed during processing
+				for (size_t i = 0; i < result.indices.size(); ++i)
+					result.indices[i] = unsigned(i);
+			}
 
 			for (size_t ai = 0; ai < primitive.attributes_count; ++ai)
 			{
@@ -258,7 +278,10 @@ static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::ve
 				if (attr.type == cgltf_attribute_type_custom)
 					s.custom_name = attr.name;
 
-				readAccessor(s.data, attr.data);
+				if (sparse.empty())
+					readAccessor(s.data, attr.data);
+				else
+					readAccessor(s.data, attr.data, sparse);
 
 				if (attr.type == cgltf_attribute_type_color && attr.data->type == cgltf_type_vec3)
 				{
@@ -288,7 +311,10 @@ static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::ve
 					s.index = attr.index;
 					s.target = int(ti + 1);
 
-					readAccessor(s.data, attr.data);
+					if (sparse.empty())
+						readAccessor(s.data, attr.data);
+					else
+						readAccessor(s.data, attr.data, sparse);
 				}
 			}
 
@@ -303,15 +329,16 @@ static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::ve
 	}
 }
 
-static void parseMeshInstancesGltf(std::vector<Transform>& instances, cgltf_node* node)
+static void parseMeshInstancesGltf(std::vector<Instance>& instances, cgltf_node* node, size_t ni)
 {
 	cgltf_accessor* translation = NULL;
 	cgltf_accessor* rotation = NULL;
 	cgltf_accessor* scale = NULL;
+	cgltf_accessor* color = NULL;
 
 	for (size_t i = 0; i < node->mesh_gpu_instancing.attributes_count; ++i)
 	{
-		cgltf_attribute& attr = node->mesh_gpu_instancing.attributes[i];
+		const cgltf_attribute& attr = node->mesh_gpu_instancing.attributes[i];
 
 		if (strcmp(attr.name, "TRANSLATION") == 0 && attr.data->type == cgltf_type_vec3)
 			translation = attr.data;
@@ -319,6 +346,10 @@ static void parseMeshInstancesGltf(std::vector<Transform>& instances, cgltf_node
 			rotation = attr.data;
 		else if (strcmp(attr.name, "SCALE") == 0 && attr.data->type == cgltf_type_vec3)
 			scale = attr.data;
+		else if (strcmp(attr.name, "_COLOR_0") == 0 && (attr.data->type == cgltf_type_vec3 || attr.data->type == cgltf_type_vec4))
+			color = attr.data;
+		else
+			fprintf(stderr, "Warning: ignoring %s instance attribute %s in node %d\n", *attr.name == '_' ? "custom" : "unknown", attr.name, int(ni));
 	}
 
 	size_t count = node->mesh_gpu_instancing.attributes[0].data->count;
@@ -338,16 +369,21 @@ static void parseMeshInstancesGltf(std::vector<Transform>& instances, cgltf_node
 	for (size_t i = 0; i < count; ++i)
 	{
 		if (translation)
-			cgltf_accessor_read_float(translation, i, instance.translation, sizeof(float));
+			cgltf_accessor_read_float(translation, i, instance.translation, 4);
 		if (rotation)
-			cgltf_accessor_read_float(rotation, i, instance.rotation, sizeof(float));
+			cgltf_accessor_read_float(rotation, i, instance.rotation, 4);
 		if (scale)
-			cgltf_accessor_read_float(scale, i, instance.scale, sizeof(float));
+			cgltf_accessor_read_float(scale, i, instance.scale, 4);
 
-		Transform xf;
-		cgltf_node_transform_world(&instance, xf.data);
+		Instance obj = {};
+		cgltf_node_transform_world(&instance, obj.transform);
 
-		instances.push_back(xf);
+		obj.color[0] = obj.color[1] = obj.color[2] = obj.color[3] = 1.0f;
+
+		if (color)
+			cgltf_accessor_read_float(color, i, obj.color, 4);
+
+		instances.push_back(obj);
 	}
 }
 
@@ -377,7 +413,7 @@ static void parseMeshNodesGltf(cgltf_data* data, std::vector<Mesh>& meshes, cons
 			if (node.has_mesh_gpu_instancing)
 			{
 				mesh->scene = 0; // we need to assign scene index since instances are attached to a scene; for now we assume 0
-				parseMeshInstancesGltf(mesh->instances, &node);
+				parseMeshInstancesGltf(mesh->instances, &node, i);
 			}
 			else
 			{
@@ -421,7 +457,7 @@ static void parseAnimationsGltf(cgltf_data* data, std::vector<Animation>& animat
 
 			if (!channel.target_node)
 			{
-				fprintf(stderr, "Warning: ignoring channel %d of animation %d because it has no target node\n", int(j), int(i));
+				fprintf(stderr, "Warning: ignoring channel %d of animation %d (%s) because it has no target node\n", int(j), int(i), animation.name ? animation.name : "");
 				continue;
 			}
 
@@ -441,7 +477,7 @@ static void parseAnimationsGltf(cgltf_data* data, std::vector<Animation>& animat
 
 		if (result.tracks.empty())
 		{
-			fprintf(stderr, "Warning: ignoring animation %d because it has no valid tracks\n", int(i));
+			fprintf(stderr, "Warning: ignoring animation %d (%s) because it has no valid tracks\n", int(i), animation.name ? animation.name : "");
 			animations.pop_back();
 		}
 	}
@@ -598,6 +634,10 @@ static cgltf_result decompressMeshopt(cgltf_data* data)
 			meshopt_decodeFilterExp(result, mc->count, mc->stride);
 			break;
 
+		case cgltf_meshopt_compression_filter_color:
+			meshopt_decodeFilterColor(result, mc->count, mc->stride);
+			break;
+
 		default:
 			break;
 		}
@@ -675,4 +715,12 @@ cgltf_data* parseGlb(const void* buffer, size_t size, std::vector<Mesh>& meshes,
 	result = (result == cgltf_result_success) ? decompressMeshopt(data) : result;
 
 	return parseGltf(data, result, meshes, animations, error);
+}
+
+bool areExtrasEqual(const cgltf_extras& lhs, const cgltf_extras& rhs)
+{
+	if (lhs.data && rhs.data)
+		return strcmp(lhs.data, rhs.data) == 0;
+	else
+		return lhs.data == rhs.data;
 }

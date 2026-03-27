@@ -1,5 +1,5 @@
 // This file is part of meshoptimizer library and is distributed under the terms of MIT License.
-// Copyright (C) 2016-2024, by Arseny Kapoulkine (arseny.kapoulkine@gmail.com)
+// Copyright (C) 2016-2026, by Arseny Kapoulkine (arseny.kapoulkine@gmail.com)
 
 export class Bounds {
 	centerX: number;
@@ -39,7 +39,31 @@ export const MeshoptClusterizer: {
 		max_triangles: number,
 		cone_weight?: number
 	) => MeshletBuffers;
+
+	buildMeshletsFlex: (
+		indices: Uint32Array,
+		vertex_positions: Float32Array,
+		vertex_positions_stride: number,
+		max_vertices: number,
+		min_triangles: number,
+		max_triangles: number,
+		cone_weight?: number,
+		split_factor?: number
+	) => MeshletBuffers;
+
+	buildMeshletsSpatial: (
+		indices: Uint32Array,
+		vertex_positions: Float32Array,
+		vertex_positions_stride: number,
+		max_vertices: number,
+		min_triangles: number,
+		max_triangles: number,
+		fill_weight?: number
+	) => MeshletBuffers;
+
+	extractMeshlet: (buffers: MeshletBuffers, index: number) => Meshlet;
+
 	computeClusterBounds: (indices: Uint32Array, vertex_positions: Float32Array, vertex_positions_stride: number) => Bounds;
 	computeMeshletBounds: (buffers: MeshletBuffers, vertex_positions: Float32Array, vertex_positions_stride: number) => Bounds[];
-	extractMeshlet: (buffers: MeshletBuffers, index: number) => Meshlet;
+	computeSphereBounds: (positions: Float32Array, positions_stride: number, radii?: Float32Array, radii_stride?: number) => Bounds;
 };

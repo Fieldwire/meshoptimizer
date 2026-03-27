@@ -2,14 +2,11 @@
 
 This folder contains JavaScript/WebAssembly modules that can be used to access parts of functionality of meshoptimizer library. While normally these would be used internally by glTF loaders, processors and other Web optimization tools, they can also be used directly if needed. The modules are available as an [NPM package](https://www.npmjs.com/package/meshoptimizer) but can also be redistributed individually on a file-by-file basis.
 
+When using the NPM package, package exports can be used to import individual components (e.g. `meshoptimizer/decoder`) as well as the entire package (`meshoptimizer`).
+
 ## Structure
 
-Each component comes in two variants:
-
-- `meshopt_component.js` uses a UMD-style module declaration and can be used by a wide variety of JavaScript module loaders, including node.js require(), AMD, Common.JS, and can also be loaded into the web page directly via a `<script>` tag which exposes the module as a global variable
-- `meshopt_component.module.js` uses ES6 module exports and can be imported from another ES6 module
-
-In either case the export name is MeshoptComponent and is an object that has two fields:
+Each component comes in a separate file, `meshopt_component.js`, which uses ES6 module exports and can be imported from another ES6 module. The export name is MeshoptComponent and is an object that has two fields:
 
 - `supported` is a boolean that can be checked to see if the component is supported by the current execution environment; it will generally be `false` when WebAssembly is not supported or enabled. To use these components on browsers without WebAssembly a polyfill library is recommended.
 - `ready` is a Promise that is resolved when WebAssembly compilation and initialization finishes; any functions are unsafe to call before that happens.
@@ -18,7 +15,9 @@ In addition to that, each component exposes a set of specific functions document
 
 ## Decoder
 
-`MeshoptDecoder` (`meshopt_decoder.js`) implements high performance decompression of attribute and index buffers encoded using meshopt compression. This can be used to decompress glTF buffers encoded with `EXT_meshopt_compression` extension or for custom geometry compression pipelines. The module contains two implementations, scalar and SIMD, with the best performing implementation selected automatically. When SIMD is available, the decoders run at 1-3 GB/s on modern desktop computers.
+`MeshoptDecoder` (`meshopt_decoder.mjs`) implements high performance decompression of attribute and index buffers encoded using meshopt compression. This can be used to decompress glTF buffers encoded with `EXT_meshopt_compression` extension or for custom geometry compression pipelines. The module contains two implementations, scalar and SIMD, with the best performing implementation selected automatically. When SIMD is available, the decoders run at 1-3 GB/s on modern desktop computers.
+
+> Note: for maximum compatibility, MeshoptDecoder is also available as CommonJS module via `meshopt_decoder.cjs`; it can be used by a wide variety of JavaScript module loaders, including node.js require(), AMD, Common.JS, and can also be loaded into the web page directly via a `<script>` tag which exposes the module as a global variable `MeshoptDecoder`. The ESM version uses `.mjs` file extension unlike other components, to avoid compatibility issues with prior versions.
 
 To decode a buffer, one of the decoding functions should be called:
 
@@ -69,12 +68,13 @@ reorderMesh: (indices: Uint32Array, triangles: boolean, optsize: boolean) => [Ui
 
 The function optimizes the input array for locality of reference (make sure to pass `triangles=true` for triangle lists, and `false` otherwise). `optsize` can choose whether the order should be optimal for transmission size (recommended for Web) or for GPU rendering performance. The function changes the `indices` array in place and returns an additional remap array and the total number of unique vertices.
 
-After this function returns, to maintain correct rendering the application should reorder all vertex streams - including morph targets if applicable - according to the remap array. For each original index, remap array contains the new location for that index, so the remapping pseudocode looks like this:
+After this function returns, to maintain correct rendering the application should reorder all vertex streams - including morph targets if applicable - according to the remap array. For each original index, remap array contains the new location for that index (or `0xffffffff` if the value is unused), so the remapping pseudocode looks like this:
 
 ```ts
 let newvertices = new VertexArray(unique); // unique is returned by reorderMesh
 for (let i = 0; i < oldvertices.length; ++i)
-	newvertices[remap[i]] = oldvertices[i];
+    if (remap[i] != 0xffffffff)
+        newvertices[remap[i]] = oldvertices[i];
 ```
 
 When the input is a point cloud and not a triangle mesh, it is recommended to reorder the points using a specialized function that performs spatial sorting that can result in significant improvements in compression ratio by the subsequent processing:
@@ -92,16 +92,19 @@ To that end, three filter encoders are provided: octahedral (optimal for normal 
 ```ts
 encodeFilterOct: (source: Float32Array, count: number, stride: number, bits: number) => Uint8Array;
 encodeFilterQuat: (source: Float32Array, count: number, stride: number, bits: number) => Uint8Array;
-encodeFilterExp: (source: Float32Array, count: number, stride: number, bits: number) => Uint8Array;
+encodeFilterExp: (source: Float32Array, count: number, stride: number, bits: number, mode?: string) => Uint8Array;
 ```
 
 All these functions take a source floating point buffer as an input, and perform a complex transformation that, when reversed by a decoder, results in an optimally quantized decompressed output. Because of this these functions assume specific configuration of input and output data:
 
-- `encodeFilterOct` takes each 4 floats from the source array (for a total of `count` 4-vectors), treats them as a unit vector (XYZ) and fourth component from -1..1 (W), and encodes them into `stride` bytes in a way that, when decoded, the result is stored as a normalized signed 4-vector. `stride` must be 4 (in which case the round-trip result is 4 8-bit normalized values) or 8 (in which case the round-trip result is 4 16-bit normalized values). This encoding is recommended for normals (with stride=4 for medium quality and 8 for high quality output) and tangents (with stride=4 providing enough quality in all cases; note that 4-th component is preserved in case it stores coordinate spaced winding). `bits` represents the desired precision of each component and must be in `[1..8]` range if `stride=4` and `[1..16]` range if `stride=8`.
+- `encodeFilterOct` takes each 4 floats from the source array (for a total of `count` 4-vectors), treats them as a unit vector (XYZ) and fourth component from -1..1 (W), and encodes them into `stride` bytes in a way that, when decoded, the result is stored as a normalized signed 4-vector. `stride` must be 4 (in which case the round-trip result is 4 8-bit normalized values) or 8 (in which case the round-trip result is 4 16-bit normalized values). This encoding is recommended for normals (with stride=4 for medium quality and 8 for high quality output) and tangents (with stride=4 providing enough quality in all cases; note that 4-th component is preserved in case it stores tangent frame winding). `bits` represents the desired precision of each component and must be in `[2..8]` range if `stride=4` and `[2..16]` range if `stride=8`.
 
 - `encodeFilterQuat` takes each 4 floats from the source array (for a total of `count` 4-vectrors), treats them as a unit quaternion, and encodes them into `stride` bytes in a way that, when decoded, the result is stored as a normalized signed 4-vector representing the same rotation as the source quaternion. `stride` must be 8 (the round-trip result is 4 16-bit normalized values). `bits` represents the desired precision of each component and must be in `[4..16]` range, although using less than 9-10 bits is likely going to lead to significant deviation in rotations.
 
 - `encodeFilterExp` takes each K floats from the source array (where `K=stride/4`, for a total of `count` K-vectors), and encodes them into `stride` bytes in a way that, when decoded, the result is stored as K single-precision floating point values. This may seem redundant but it allows to trade some precision for a higher compression ratio due to reduced precision of stored components, controlled by `bits` which must be in `[1..24]` range, and a shared exponent encoding used by the function.
+The `mode` parameter can be used to influence the exponent sharing and provides a tradeoff between compressed size and quality for various use cases, and can be one of 'Separate', 'SharedVector', 'SharedComponent' and 'Clamped' (defaulting to 'SharedVector').
+
+- `encodeFilterColor` takes each 4 floats from the source array (for a total of `count` 4-vectors), treats them as an RGBA color with each component from 0..1, and encodes them into `stride` bytes in a way that, when decoded, the result is stored as a normalized unsigned 4-vector. `stride` must be 4 (in which case the round-trip result is 4 8-bit normalized values) or 8 (in which case the round-trip result is 4 16-bit normalized values). This encoding is recommended for colors (with stride=4 for medium quality and 8 for high quality output). `bits` represents the desired precision of each component and must be in `[2..8]` range if `stride=4` and `[2..16]` range if `stride=8`.
 
 Note that in all cases using the highest `bits` value allowed by the output `stride` won't change the size of the output array (which is always going to be `count * stride` bytes), but it *will* reduce compression efficiency, as such the lowest acceptable `bits` value is recommended to use. When multiple parts of the data require different levels of precision, encode filters can be called multiple times and the output of the same filter called with the same `stride` can be concatenated even if `bits` are different.
 
@@ -109,6 +112,7 @@ After data is quantized using filter encoding or manual quantization, the result
 
 ```ts
 encodeVertexBuffer: (source: Uint8Array, count: number, size: number) => Uint8Array;
+encodeVertexBufferLevel: (source: Uint8Array, count: number, size: number, level: number, version?: number) => Uint8Array;
 encodeIndexBuffer: (source: Uint8Array, count: number, size: number) => Uint8Array;
 encodeIndexSequence: (source: Uint8Array, count: number, size: number) => Uint8Array;
 
@@ -120,6 +124,8 @@ encodeGltfBuffer: (source: Uint8Array, count: number, size: number, mode: string
 Note that the source is specified as byte arrays; for example, to quantize a position stream encoded using 16-bit integers with 5 vertices, `source` must have length of `5 * 8 = 40` bytes (8 bytes for each position - 3\*2 bytes of data and 2 bytes of padding to conform to alignment requirements), `count` must be 5 and `size` must be 8. When padding data to the alignment boundary make sure to use 0 as padding bytes for optimal compression.
 
 When interleaved vertex data is compressed, `encodeVertexBuffer` can be called with the full size of a single interleaved vertex; however, when compressing deinterleaved data, note that `encodeVertexBuffer` should be called on each component individually if the strides of different streams are different.
+
+By default, `encodeVertexBuffer` uses v1 version of the encoding; this encoding is *not* compatible with `EXT_meshopt_compression` glTF extension but results in higher compression ratios. To encode data compatible with `EXT_meshopt_compression`, use `encodeVertexBufferLevel` with version=0, or - preferably - `encodeGltfBuffer`, which defaults to v0 (but can also be used to encode v1 content by passing version=1).
 
 ## Simplifier
 
@@ -141,7 +147,28 @@ Upon completion, the function returns the new index buffer as well as the result
 
 To control behavior of the algorithm more precisely, `flags` may specify an array of strings that enable various additional options:
 
-- `"LockBorder"` locks the vertices that lie on the topological border of the mesh in place such that they don't move during simplification. This can be valuable to simplify independent chunks of a mesh, for example terrain, to ensure that individual levels of detail can be stitched together later without gaps.
+- `'LockBorder'` locks the vertices that lie on the topological border of the mesh in place such that they don't move during simplification. This can be valuable to simplify independent chunks of a mesh, for example terrain, to ensure that individual levels of detail can be stitched together later without gaps.
+- `'ErrorAbsolute'` changes the error metric from relative to absolute both for the input error limit as well as for the resulting error. This can be used instead of `getScale`.
+- `'Sparse'` improves simplification performance assuming input indices are a sparse subset of the mesh. This can be useful when simplifying small mesh subsets independently. For consistency, it is recommended to use absolute errors when sparse simplification is desired.
+- ``Prune`` allows removal of isolated components regardless of the topological restrictions inside the component. This is generally recommended for full-mesh simplification as it can improve quality and reduce triangle count; note that with this option, triangles connected to locked vertices may be removed as part of their component.
+
+In addition to the `Prune` flag, you can explicitly prune isolated components under a target threshold by calling the `simplifyPrune` function:
+
+```ts
+simplifyPrune: (indices: Uint32Array, vertex_positions: Float32Array, vertex_positions_stride: number, target_error: number) => Uint32Array;
+```
+
+This can be done before regular simplification or as the only step, which is useful for scenarios like isosurface cleanup.
+
+While `simplify` is aware of attribute discontinuities by default (and infers them through the supplied index buffer) and tries to preserve them, it can be useful to provide information about attribute values. This allows the simplifier to take attribute error into account which can improve shading (by using vertex normals), texture deformation (by using texture coordinates), and may be necessary to preserve vertex colors when textures are not used in the first place. This can be done by using a variant of the simplification function that takes attribute values and weight factors, `simplifyWithAttributes`:
+
+```ts
+simplifyWithAttributes: (indices: Uint32Array, vertex_positions: Float32Array, vertex_positions_stride: number, vertex_attributes: Float32Array, vertex_attributes_stride: number, attribute_weights: number[], vertex_lock: Uint8Array | null, target_index_count: number, target_error: number, flags?: Flags[]) => [Uint32Array, number];
+```
+
+This function takes an additional `vertex_attributes` buffer that contains all the attributes to be used. The `attribute_weights` array contains a weight for each attribute, which is used to balance the importance of each attribute during simplification. For normalized attributes like normals and vertex colors, a weight around 1.0 is usually appropriate; internally, a change of `1/weight` in attribute value over a distance `d` is approximately equivalent to a change of `d` in position. Using higher weights may be appropriate to preserve attribute quality at the cost of position quality. If the attribute has a different scale (e.g. unnormalized vertex colors in [0..255] range), the weight should be divided by the scaling factor (1/255 in this example).
+
+The optional `vertex_lock` parameter can be used to lock some vertices in place, preventing them from being moved during simplification. This is a binary array of the same length as the number of vertices, where `1` means that the vertex is locked and `0` means that it is free to move. This can be used to preserve seams or other important features of the mesh.
 
 When the resulting mesh is stored, it might be desireable to remove the redundant vertices from the attribute buffers instead of simply using the original vertex data with the smaller index buffer. For that purpose, the simplifier module provides the `compactMesh` function, which is similar to `reorderMesh` function that the encoder provides, but doesn't perform extra optimizations and merely prepares a new vertex order that can be used to create new, smaller, vertex buffers:
 
@@ -155,6 +182,16 @@ The simplification algorithm uses relative errors for input and output; to conve
 getScale: (vertex_positions: Float32Array, vertex_positions_stride: number) => number;
 ```
 
+The algorithms `simplify` and `simplifyWithAttributes` work on triangle meshes. `MeshoptSimplifier` additionally provides an algorithm to simplify point clouds, with optional per-point color support:
+
+```ts
+simplifyPoints: (vertex_positions: Float32Array, vertex_positions_stride: number, target_vertex_count: number, vertex_colors?: Float32Array, vertex_colors_stride?: number, color_weight?: number) => Uint32Array;
+```
+
+`vertex_colors` is an optional buffer containing RGB colors, with 3 values per point; `color_weight` can be used to balance the importance of color preservation with position preservation, and can be set to `1.0` if the input colors are in `[0..1]` range.
+
+The resulting indices can be used to render the simplified point cloud; similarly to triangle simplification, to reduce the memory footprint, the point cloud can be reindexed using the remap table returned by `compactMesh`.
+
 ## Clusterizer
 
 `MeshoptClusterizer` (`meshopt_clusterizer.js`) implements meshlet generation and optimization.
@@ -167,11 +204,23 @@ buildMeshlets(indices: Uint32Array, vertex_positions: Float32Array, vertex_posit
 
 The algorithm uses position data stored in a strided array; `vertex_positions_stride` represents the distance between subsequent positions in `Float32` units.
 
-The maximum number of triangles and number of vertices per meshlet can be controlled via `max_triangles` and `max_vertices` parameters. However, `max_vertices` must not be greater than 255 and `max_triangles` must not be greater than 512.
+The maximum number of triangles and number of vertices per meshlet can be controlled via `max_triangles` and `max_vertices` parameters. However, `max_vertices` must not be greater than 256 and `max_triangles` must not be greater than 512.
 
 Additionally, if cluster cone culling is to be used, `buildMeshlets` allows specifying a `cone_weight` as a value between 0 and 1 to balance culling efficiency with other forms of culling. By default, `cone_weight` is set to 0.
 
-All meshlets are implicitly optimized for better triangle and vertex locality by `buildMeshlets`.
+For finer control over triangle counts, use `buildMeshletsFlex`, which accepts minimum and maximum triangle limits and an optional `split_factor` to nudge large clusters to split sooner.
+
+```ts
+buildMeshletsFlex(indices: Uint32Array, vertex_positions: Float32Array, vertex_positions_stride: number, max_vertices: number, min_triangles: number, max_triangles: number, cone_weight?: number, split_factor?: number) => MeshletBuffers;
+```
+
+To favor spatial splits for ray tracing, `buildMeshletsSpatial` keeps the same controls but replaces cone weighting with `fill_weight` to trade off cluster fullness against SAH cost.
+
+```ts
+buildMeshletsSpatial(indices: Uint32Array, vertex_positions: Float32Array, vertex_positions_stride: number, max_vertices: number, min_triangles: number, max_triangles: number, fill_weight?: number) => MeshletBuffers;
+```
+
+All meshlets produced by these builders are implicitly optimized for better triangle and vertex locality.
 
 The algorithm returns the meshlet data as packed buffers:
 
@@ -221,6 +270,12 @@ It is also possible to compute bounds of a vertex cluster that is not generated 
 
 ```ts
 computeClusterBounds(indices: Uint32Array, vertex_positions: Float32Array, vertex_positions_stride: number) => Bounds;
+```
+
+Finally, it is possible to compute spherical bounds of an arbitrary set of points, which can be useful to compute bounds for arbitrary mesh subsets. Each point can have an optional radius; this can be used to merge the spherical bounds of multiple clusters. The inputs are provided as strided arrays with the stride in `Float32` units.
+
+```ts
+computeSphereBounds: (positions: Float32Array, positions_stride: number, radii?: Float32Array, radii_stride?: number) => Bounds;
 ```
 
 ## License
