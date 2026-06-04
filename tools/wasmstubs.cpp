@@ -2,9 +2,9 @@
 #error This file contains libc stubs for WASI SDK and should only be used in non-Emscripten WebAssembly builds
 #endif
 
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <assert.h>
 
 extern unsigned char __heap_base;
 static intptr_t sbrkp = intptr_t(&__heap_base);
@@ -20,7 +20,7 @@ extern "C" void* sbrk(intptr_t increment)
 
 	size_t heap_size = __builtin_wasm_memory_size(0) * WASM_PAGE_SIZE;
 
-	if (sbrkp > heap_size)
+	if (size_t(sbrkp) > heap_size)
 	{
 		size_t diff = (sbrkp - heap_size + WASM_PAGE_SIZE - 1) / WASM_PAGE_SIZE;
 
@@ -109,7 +109,7 @@ void* operator new(size_t size)
 
 void operator delete(void* ptr) throw()
 {
-	void* brk = sbrk(0);
+	void* brk = reinterpret_cast<void*>(sbrkp);
 	assert(ptr <= brk);
 
 	sbrk((char*)ptr - (char*)brk);

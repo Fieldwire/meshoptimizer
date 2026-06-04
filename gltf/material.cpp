@@ -55,14 +55,6 @@ static bool areTextureViewsEqual(const cgltf_texture_view& lhs, const cgltf_text
 	return true;
 }
 
-static bool areExtrasEqual(const cgltf_extras& lhs, const cgltf_extras& rhs)
-{
-	if (lhs.data && rhs.data)
-		return strcmp(lhs.data, rhs.data) == 0;
-	else
-		return lhs.data == rhs.data;
-}
-
 static bool areMaterialComponentsEqual(const cgltf_pbr_metallic_roughness& lhs, const cgltf_pbr_metallic_roughness& rhs)
 {
 	if (!areTextureViewsEqual(lhs.base_color_texture, rhs.base_color_texture))
@@ -246,6 +238,23 @@ static bool areMaterialComponentsEqual(const cgltf_dispersion& lhs, const cgltf_
 	return true;
 }
 
+static bool areMaterialComponentsEqual(const cgltf_diffuse_transmission& lhs, const cgltf_diffuse_transmission& rhs)
+{
+	if (lhs.diffuse_transmission_factor != rhs.diffuse_transmission_factor)
+		return false;
+
+	if (memcmp(lhs.diffuse_transmission_color_factor, rhs.diffuse_transmission_color_factor, sizeof(cgltf_float) * 3) != 0)
+		return false;
+
+	if (!areTextureViewsEqual(lhs.diffuse_transmission_texture, rhs.diffuse_transmission_texture))
+		return false;
+
+	if (!areTextureViewsEqual(lhs.diffuse_transmission_color_texture, rhs.diffuse_transmission_color_texture))
+		return false;
+
+	return true;
+}
+
 static bool areMaterialsEqual(const cgltf_material& lhs, const cgltf_material& rhs, const Settings& settings)
 {
 	if (lhs.has_pbr_metallic_roughness != rhs.has_pbr_metallic_roughness)
@@ -318,6 +327,12 @@ static bool areMaterialsEqual(const cgltf_material& lhs, const cgltf_material& r
 		return false;
 
 	if (lhs.has_dispersion && !areMaterialComponentsEqual(lhs.dispersion, rhs.dispersion))
+		return false;
+
+	if (lhs.has_diffuse_transmission != rhs.has_diffuse_transmission)
+		return false;
+
+	if (lhs.has_diffuse_transmission && !areMaterialComponentsEqual(lhs.diffuse_transmission, rhs.diffuse_transmission))
 		return false;
 
 	if (!areTextureViewsEqual(lhs.normal_texture, rhs.normal_texture))
@@ -425,20 +440,11 @@ void markNeededMaterials(cgltf_data* data, std::vector<MaterialInfo>& materials,
 	}
 }
 
-bool hasValidTransform(const cgltf_texture_view& view)
+bool isValidTransform(const cgltf_texture_transform& transform)
 {
-	if (view.has_transform)
-	{
-		if (view.transform.offset[0] != 0.0f || view.transform.offset[1] != 0.0f ||
-		    view.transform.scale[0] != 1.0f || view.transform.scale[1] != 1.0f ||
-		    view.transform.rotation != 0.0f)
-			return true;
-
-		if (view.transform.has_texcoord && view.transform.texcoord != view.texcoord)
-			return true;
-	}
-
-	return false;
+	return transform.offset[0] != 0.0f || transform.offset[1] != 0.0f ||
+	       transform.scale[0] != 1.0f || transform.scale[1] != 1.0f ||
+	       transform.rotation != 0.0f;
 }
 
 static const cgltf_image* getTextureImage(const cgltf_texture* texture)
@@ -457,7 +463,7 @@ static const cgltf_image* getTextureImage(const cgltf_texture* texture)
 
 static void analyzeMaterialTexture(const cgltf_texture_view& view, TextureKind kind, MaterialInfo& mi, cgltf_data* data, std::vector<TextureInfo>& textures, std::vector<ImageInfo>& images)
 {
-	mi.uses_texture_transform |= hasValidTransform(view);
+	mi.uses_texture_transform |= view.has_transform && isValidTransform(view.transform);
 
 	if (view.texture)
 	{
@@ -535,6 +541,12 @@ static void analyzeMaterial(const cgltf_material& material, MaterialInfo& mi, cg
 		analyzeMaterialTexture(material.anisotropy.anisotropy_texture, TextureKind_Normal, mi, data, textures, images);
 	}
 
+	if (material.has_diffuse_transmission)
+	{
+		analyzeMaterialTexture(material.diffuse_transmission.diffuse_transmission_texture, TextureKind_Attrib, mi, data, textures, images);
+		analyzeMaterialTexture(material.diffuse_transmission.diffuse_transmission_color_texture, TextureKind_Color, mi, data, textures, images);
+	}
+
 	analyzeMaterialTexture(material.normal_texture, TextureKind_Normal, mi, data, textures, images);
 	analyzeMaterialTexture(material.occlusion_texture, TextureKind_Attrib, mi, data, textures, images);
 	analyzeMaterialTexture(material.emissive_texture, TextureKind_Color, mi, data, textures, images);
@@ -576,14 +588,14 @@ static bool shouldKeepAlpha(const cgltf_texture_view& color, float alpha, cgltf_
 	return image && getChannels(*image, images[image - data->images], input_path) == 4;
 }
 
-void optimizeMaterials(cgltf_data* data, const char* input_path, std::vector<ImageInfo>& images)
+void optimizeMaterials(cgltf_data* data, std::vector<MaterialInfo>& materials, std::vector<ImageInfo>& images, const char* input_path)
 {
 	for (size_t i = 0; i < data->materials_count; ++i)
 	{
 		// remove BLEND/MASK from materials that don't have alpha information
 		cgltf_material& material = data->materials[i];
 
-		if (material.alpha_mode != cgltf_alpha_mode_opaque)
+		if (material.alpha_mode != cgltf_alpha_mode_opaque && !materials[i].mesh_alpha)
 		{
 			if (material.has_pbr_metallic_roughness && shouldKeepAlpha(material.pbr_metallic_roughness.base_color_texture, material.pbr_metallic_roughness.base_color_factor[3], data, input_path, images))
 				continue;
@@ -592,6 +604,7 @@ void optimizeMaterials(cgltf_data* data, const char* input_path, std::vector<Ima
 				continue;
 
 			material.alpha_mode = cgltf_alpha_mode_opaque;
+			material.alpha_cutoff = 0.5f; // reset to default to avoid writing it to output
 		}
 	}
 }
