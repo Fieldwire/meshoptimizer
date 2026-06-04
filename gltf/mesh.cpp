@@ -422,11 +422,13 @@ void dedupMeshes(std::vector<Mesh>& meshes, const Settings& settings)
 			assert(mesh.indices.size() == target.indices.size());
 
 			target.nodes.insert(target.nodes.end(), mesh.nodes.begin(), mesh.nodes.end());
+			target.node_parent_names.insert(target.node_parent_names.end(), mesh.node_parent_names.begin(), mesh.node_parent_names.end());
 			target.instances.insert(target.instances.end(), mesh.instances.begin(), mesh.instances.end());
 
 			mesh.streams.clear();
 			mesh.indices.clear();
 			mesh.nodes.clear();
+			mesh.node_parent_names.clear();
 			mesh.instances.clear();
 		}
 	}
@@ -437,8 +439,45 @@ void dedupMeshes(std::vector<Mesh>& meshes, const Settings& settings)
 		if (target.nodes.size() <= 1)
 			continue;
 
-		std::sort(target.nodes.begin(), target.nodes.end());
-		target.nodes.erase(std::unique(target.nodes.begin(), target.nodes.end()), target.nodes.end());
+		// sort and deduplicate nodes, keeping node_parent_names in sync
+		if (target.node_parent_names.size() == target.nodes.size())
+		{
+			// build index and sort by node pointer
+			std::vector<size_t> order(target.nodes.size());
+			for (size_t j = 0; j < order.size(); ++j)
+				order[j] = j;
+			std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return target.nodes[a] < target.nodes[b]; });
+
+			std::vector<cgltf_node*> sorted_nodes(target.nodes.size());
+			std::vector<const char*> sorted_parents(target.nodes.size());
+			for (size_t j = 0; j < order.size(); ++j)
+			{
+				sorted_nodes[j] = target.nodes[order[j]];
+				sorted_parents[j] = target.node_parent_names[order[j]];
+			}
+
+			// deduplicate
+			size_t write = 0;
+			for (size_t j = 0; j < sorted_nodes.size(); ++j)
+			{
+				if (j == 0 || sorted_nodes[j] != sorted_nodes[j - 1])
+				{
+					sorted_nodes[write] = sorted_nodes[j];
+					sorted_parents[write] = sorted_parents[j];
+					write++;
+				}
+			}
+			sorted_nodes.resize(write);
+			sorted_parents.resize(write);
+
+			target.nodes.swap(sorted_nodes);
+			target.node_parent_names.swap(sorted_parents);
+		}
+		else
+		{
+			std::sort(target.nodes.begin(), target.nodes.end());
+			target.nodes.erase(std::unique(target.nodes.begin(), target.nodes.end()), target.nodes.end());
+		}
 	}
 }
 
@@ -450,8 +489,11 @@ void mergeMeshInstances(Mesh& mesh, const Settings& settings)
 	// fast-path: for single instance meshes we transform in-place
 	if (mesh.nodes.size() == 1)
 	{
+		if (settings.keep_mesh_parent_nodes && !mesh.node_parent_names.empty() && mesh.node_parent_names[0])
+			mesh.parent_node_name = mesh.node_parent_names[0];
 		transformMesh(mesh, mesh, mesh.nodes[0]);
 		mesh.nodes.clear();
+		mesh.node_parent_names.clear();
 		return;
 	}
 
@@ -469,11 +511,17 @@ void mergeMeshInstances(Mesh& mesh, const Settings& settings)
 
 	for (size_t i = 0; i < mesh.nodes.size(); ++i)
 	{
+		// set the correct parent_node_name for this instance so mergeMeshes
+		// records the right parent in merged_meshes_parent_node_info
+		if (settings.keep_mesh_parent_nodes && i < mesh.node_parent_names.size() && mesh.node_parent_names[i])
+			transformed.parent_node_name = mesh.node_parent_names[i];
+
 		transformMesh(transformed, base, mesh.nodes[i]);
 		mergeMeshes(mesh, transformed, settings);
 	}
 
 	mesh.nodes.clear();
+	mesh.node_parent_names.clear();
 }
 
 void mergeMeshes(std::vector<Mesh>& meshes, const Settings& settings)
