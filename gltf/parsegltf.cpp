@@ -156,7 +156,7 @@ static bool isIdAttribute(const char* name)
 	       strncmp(name, "_FEATURE_ID_", 12) == 0;
 }
 
-static void createNodesToChildMeshesMap(cgltf_data* data, std::map<cgltf_mesh*, std::pair<const char*, const size_t> >& map)
+static void createNodesToChildMeshesMap(cgltf_data* data, std::map<cgltf_mesh*, std::pair<const char*, const size_t> >& map, std::map<cgltf_node*, std::pair<const char*, size_t> >& node_parent_map)
 {
 	for (size_t ni = 0; ni < data->nodes_count; ++ni)
 	{
@@ -169,6 +169,7 @@ static void createNodesToChildMeshesMap(cgltf_data* data, std::map<cgltf_mesh*, 
 			if (child_node->mesh && node.name)
 			{
 				map.insert(std::pair<cgltf_mesh*, std::pair<const char*, const size_t> >(child_node->mesh, std::make_pair(node.name, j)));
+				node_parent_map.insert(std::pair<cgltf_node*, std::pair<const char*, size_t> >(child_node, std::make_pair(node.name, j)));
 			}
 		}
 	}
@@ -387,7 +388,7 @@ static void parseMeshInstancesGltf(std::vector<Instance>& instances, cgltf_node*
 	}
 }
 
-static void parseMeshNodesGltf(cgltf_data* data, std::vector<Mesh>& meshes, const std::vector<std::pair<size_t, size_t> >& mesh_remap)
+static void parseMeshNodesGltf(cgltf_data* data, std::vector<Mesh>& meshes, const std::vector<std::pair<size_t, size_t> >& mesh_remap, const std::map<cgltf_node*, std::pair<const char*, size_t> >& node_parent_map)
 {
 	for (size_t i = 0; i < data->nodes_count; ++i)
 	{
@@ -410,6 +411,22 @@ static void parseMeshNodesGltf(cgltf_data* data, std::vector<Mesh>& meshes, cons
 				mesh = &meshes.back();
 			}
 
+			// if the mesh is shared by multiple nodes with different parents,
+			// track per-node parent info so mergeMeshInstances can record correct metadata
+			std::map<cgltf_node*, std::pair<const char*, size_t> >::const_iterator npm_it = node_parent_map.find(&node);
+			const char* node_parent_name = NULL;
+			if (npm_it != node_parent_map.end())
+			{
+				node_parent_name = npm_it->second.first;
+				size_t node_index_in_parent = npm_it->second.second;
+
+				if (!mesh->parent_node_name)
+				{
+					mesh->parent_node_name = node_parent_name;
+					mesh->index_in_parent_node = node_index_in_parent;
+				}
+			}
+
 			if (node.has_mesh_gpu_instancing)
 			{
 				mesh->scene = 0; // we need to assign scene index since instances are attached to a scene; for now we assume 0
@@ -419,6 +436,7 @@ static void parseMeshNodesGltf(cgltf_data* data, std::vector<Mesh>& meshes, cons
 			{
 				mesh->skin = node.skin;
 				mesh->nodes.push_back(&node);
+				mesh->node_parent_names.push_back(node_parent_name);
 			}
 		}
 	}
@@ -670,10 +688,11 @@ static cgltf_data* parseGltf(cgltf_data* data, cgltf_result result, std::vector<
 
 	std::vector<std::pair<size_t, size_t> > mesh_remap;
 	std::map<cgltf_mesh*, std::pair<const char*, const size_t> > nodes_to_child_meshes_map;
+	std::map<cgltf_node*, std::pair<const char*, size_t> > node_parent_map;
 
-	createNodesToChildMeshesMap(data, nodes_to_child_meshes_map);
+	createNodesToChildMeshesMap(data, nodes_to_child_meshes_map, node_parent_map);
 	parseMeshesGltf(data, meshes, mesh_remap, nodes_to_child_meshes_map);
-	parseMeshNodesGltf(data, meshes, mesh_remap);
+	parseMeshNodesGltf(data, meshes, mesh_remap, node_parent_map);
 	parseAnimationsGltf(data, animations);
 
 	bool free_bin = freeUnusedBuffers(data);
