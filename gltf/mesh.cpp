@@ -275,8 +275,11 @@ void mergeMeshInstances(Mesh& mesh, const Settings& settings)
 	// fast-path: for single instance meshes we transform in-place
 	if (mesh.nodes.size() == 1)
 	{
+		if (settings.keep_mesh_parent_nodes && !mesh.node_parent_names.empty() && mesh.node_parent_names[0])
+			mesh.parent_node_name = mesh.node_parent_names[0];
 		transformMesh(mesh, mesh, mesh.nodes[0]);
 		mesh.nodes.clear();
+		mesh.node_parent_names.clear();
 		return;
 	}
 
@@ -294,11 +297,17 @@ void mergeMeshInstances(Mesh& mesh, const Settings& settings)
 
 	for (size_t i = 0; i < mesh.nodes.size(); ++i)
 	{
+		// set the correct parent_node_name for this instance so mergeMeshes
+		// records the right parent in merged_meshes_parent_node_info
+		if (settings.keep_mesh_parent_nodes && i < mesh.node_parent_names.size() && mesh.node_parent_names[i])
+			transformed.parent_node_name = mesh.node_parent_names[i];
+
 		transformMesh(transformed, base, mesh.nodes[i]);
 		mergeMeshes(mesh, transformed, settings);
 	}
 
 	mesh.nodes.clear();
+	mesh.node_parent_names.clear();
 }
 
 void mergeMeshes(std::vector<Mesh>& meshes, const Settings& settings)

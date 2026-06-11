@@ -148,7 +148,7 @@ static bool isIdAttribute(const char* name)
 	       strncmp(name, "_FEATURE_ID_", 12) == 0;
 }
 
-static void createNodesToChildMeshesMap(cgltf_data* data, std::map<cgltf_mesh*, std::pair<const char*, const size_t> >& map)
+static void createNodesToChildMeshesMap(cgltf_data* data, std::map<cgltf_mesh*, std::pair<const char*, const size_t> >& map, std::map<cgltf_node*, const char*>& node_parent_map)
 {
 	for (size_t ni = 0; ni < data->nodes_count; ++ni)
 	{
@@ -161,6 +161,7 @@ static void createNodesToChildMeshesMap(cgltf_data* data, std::map<cgltf_mesh*, 
 			if (child_node->mesh && node.name)
 			{
 				map.insert(std::pair<cgltf_mesh*, std::pair<const char*, const size_t> >(child_node->mesh, std::make_pair(node.name, j)));
+				node_parent_map[child_node] = node.name;
 			}
 		}
 	}
@@ -351,7 +352,7 @@ static void parseMeshInstancesGltf(std::vector<Transform>& instances, cgltf_node
 	}
 }
 
-static void parseMeshNodesGltf(cgltf_data* data, std::vector<Mesh>& meshes, const std::vector<std::pair<size_t, size_t> >& mesh_remap)
+static void parseMeshNodesGltf(cgltf_data* data, std::vector<Mesh>& meshes, const std::vector<std::pair<size_t, size_t> >& mesh_remap, const std::map<cgltf_node*, const char*>& node_parent_map)
 {
 	for (size_t i = 0; i < data->nodes_count; ++i)
 	{
@@ -383,6 +384,10 @@ static void parseMeshNodesGltf(cgltf_data* data, std::vector<Mesh>& meshes, cons
 			{
 				mesh->skin = node.skin;
 				mesh->nodes.push_back(&node);
+
+				// track the parent name for this specific node
+				std::map<cgltf_node*, const char*>::const_iterator it = node_parent_map.find(&node);
+				mesh->node_parent_names.push_back(it != node_parent_map.end() ? it->second : NULL);
 			}
 		}
 	}
@@ -631,9 +636,10 @@ static cgltf_data* parseGltf(cgltf_data* data, cgltf_result result, std::vector<
 	std::vector<std::pair<size_t, size_t> > mesh_remap;
 	std::map<cgltf_mesh*, std::pair<const char*, const size_t> > nodes_to_child_meshes_map;
 
-	createNodesToChildMeshesMap(data, nodes_to_child_meshes_map);
+	std::map<cgltf_node*, const char*> node_parent_map;
+	createNodesToChildMeshesMap(data, nodes_to_child_meshes_map, node_parent_map);
 	parseMeshesGltf(data, meshes, mesh_remap, nodes_to_child_meshes_map);
-	parseMeshNodesGltf(data, meshes, mesh_remap);
+	parseMeshNodesGltf(data, meshes, mesh_remap, node_parent_map);
 	parseAnimationsGltf(data, animations);
 
 	bool free_bin = freeUnusedBuffers(data);
