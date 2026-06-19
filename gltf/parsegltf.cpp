@@ -385,9 +385,12 @@ static void parseMeshNodesGltf(cgltf_data* data, std::vector<Mesh>& meshes, cons
 				mesh->skin = node.skin;
 				mesh->nodes.push_back(&node);
 
-				// track the parent name for this specific node
+				// A mesh can be referenced by multiple nodes (instancing), so we store a mapping of child nodes to their parent node names
+				// This is used during instance merging, when only the child node is available and it has neither a name nor a reference to its parent
 				std::map<cgltf_node*, const char*>::const_iterator it = node_parent_map.find(&node);
-				mesh->node_parent_names.push_back(it != node_parent_map.end() ? it->second : NULL);
+				if (it != node_parent_map.end()) {
+					mesh->node_parent_names[&node] = it->second;
+				}
 			}
 		}
 	}
