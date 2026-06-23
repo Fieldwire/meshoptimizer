@@ -21,6 +21,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 
 struct Attr
 {
@@ -65,7 +66,7 @@ struct Mesh
 
 	const char* parent_node_name;
 	size_t index_in_parent_node;
-	std::vector<const char*> node_parent_names;
+	std::map<cgltf_node*, const char*> node_parent_names;
 
 	std::vector<std::pair<const char*, unsigned int> >merged_meshes_parent_node_info;
 };

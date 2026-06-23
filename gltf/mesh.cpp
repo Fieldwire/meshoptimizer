@@ -260,9 +260,18 @@ static void mergeMeshes(Mesh& target, const Mesh& mesh, const Settings& settings
 	for (size_t i = 0; i < index_count; ++i)
 	{
 		target.indices[index_offset + i] = unsigned(vertex_offset + mesh.indices[i]);
-		if (settings.keep_mesh_parent_nodes && mesh.parent_node_name)
-		{
-			target.merged_meshes_parent_node_info.push_back(std::pair<const char*, unsigned int>(mesh.parent_node_name, index_offset));
+	}
+
+	if (settings.keep_mesh_parent_nodes && mesh.parent_node_name)
+	{
+		target.merged_meshes_parent_node_info.push_back(std::pair<const char*, unsigned int>(mesh.parent_node_name, index_offset));
+
+		// When the target mesh consumes another mesh, it must also inherit that mesh's existing parent-node mappings.
+		// This is required for -mm instance merging. Without -mm, meshes are merged strictly left-to-right, guaranteeing that
+		// a consumed mesh has never previously consumed another mesh. Instance merging occurs before the standard merge pass,
+		// making it possible to consume a mesh that already contains mappings inherited from earlier merges.
+		for (const auto& pair : mesh.merged_meshes_parent_node_info) {
+			target.merged_meshes_parent_node_info.push_back({ pair.first, pair.second + index_offset });
 		}
 	}
 }
@@ -275,8 +284,8 @@ void mergeMeshInstances(Mesh& mesh, const Settings& settings)
 	// fast-path: for single instance meshes we transform in-place
 	if (mesh.nodes.size() == 1)
 	{
-		if (settings.keep_mesh_parent_nodes && !mesh.node_parent_names.empty() && mesh.node_parent_names[0])
-			mesh.parent_node_name = mesh.node_parent_names[0];
+		if (settings.keep_mesh_parent_nodes && mesh.node_parent_names.find(mesh.nodes[0]) != mesh.node_parent_names.end())
+			mesh.parent_node_name = mesh.node_parent_names[mesh.nodes[0]];
 		transformMesh(mesh, mesh, mesh.nodes[0]);
 		mesh.nodes.clear();
 		mesh.node_parent_names.clear();
@@ -299,8 +308,8 @@ void mergeMeshInstances(Mesh& mesh, const Settings& settings)
 	{
 		// set the correct parent_node_name for this instance so mergeMeshes
 		// records the right parent in merged_meshes_parent_node_info
-		if (settings.keep_mesh_parent_nodes && i < mesh.node_parent_names.size() && mesh.node_parent_names[i])
-			transformed.parent_node_name = mesh.node_parent_names[i];
+		if (settings.keep_mesh_parent_nodes && mesh.node_parent_names.find(mesh.nodes[i]) != mesh.node_parent_names.end())
+			transformed.parent_node_name = mesh.node_parent_names[mesh.nodes[i]];
 
 		transformMesh(transformed, base, mesh.nodes[i]);
 		mergeMeshes(mesh, transformed, settings);
