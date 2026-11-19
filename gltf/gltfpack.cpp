@@ -79,6 +79,8 @@ static void mesh_name_with_parent_node_info(const Mesh& mesh, std::string* mesh_
 {
 	// compute a unique name for the mesh, since a parent node with a given name can have several meshes
 	*mesh_name = std::string(mesh.parent_node_name) + "_" + std::to_string(mesh.index_in_parent_node);
+
+	if (mesh.primitive_index != 0) *mesh_name += "_p" + std::to_string(mesh.primitive_index);
 }
 
 static void printMeshStats(const std::vector<Mesh>& meshes, const char* name)
